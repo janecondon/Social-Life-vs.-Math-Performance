@@ -1,0 +1,1229 @@
+---
+title: "AMS 572 Project"
+author: "Jane Condon, Valentina Tillmann"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Influence of Social Life and Socioeconomic Plus Demographic Factors on a High School Student's Mathematics Grades
+
+
+## Introduction: Introducing and Preparing the Data for Analysis
+
+
+### Downloading R packages that we may need
+
+```{r}
+install_if_needed <- function(package) {
+  if (!requireNamespace(package, quietly = TRUE)) {
+    install.packages(package)
+  }
+}
+
+install_if_needed("tidyverse")
+install_if_needed("dplyr")
+install_if_needed("MASS")
+install_if_needed("pscl")
+install_if_needed("pheatmap")
+install_if_needed("reshape2")
+install_if_needed("mice")
+install_if_needed("car")
+install_if_needed("ggplot2")
+
+library(tidyverse)
+library(dplyr)
+library(pscl)
+library(MASS)
+library(pheatmap)
+library(reshape2)
+library(mice)
+library(car)
+library(ggplot2)
+
+```
+
+
+
+### Loading the dataset
+
+```{r}
+#Reading the csv file
+math_data <- read.csv("student_math_clean.csv")
+```
+
+```{r}
+#Displaying the dataset
+head(math_data)
+```
+
+```{r}
+#Viewing the types of variables we have to verify that we have both numerical and categorical variables
+sapply(math_data, class)
+```
+
+Our categorical variables are of the "character" type, so we must turn these into factor variables.
+
+### Data Cleaning and Preparation for Analysis
+
+
+```{r}
+#Selecting only the variables that we are using in our analysis to be part of the dataframe
+math_data <- math_data[, c("final_grade", "social", "weekend_alcohol","activities","romantic_relationship","address_type","family_support","health","internet_access","mother_education","father_education","extra_paid_classes","parent_status","absences")]
+```
+
+
+```{r}
+#Turning categorical variables into factor variables (variable with multiple levels)
+math_data <- math_data %>%
+  mutate(across(c(address_type,parent_status, family_support, extra_paid_classes, activities, internet_access, romantic_relationship, mother_education,father_education), as.factor))
+
+math_data$mother_education <- relevel(math_data$mother_education, ref = "secondary education")
+math_data$father_education <- relevel(math_data$father_education, ref = "secondary education")
+```
+
+
+We transform mother's education, father's education, travel time, and study time, into ordered factor variables, as the levels of these variables do have a defined order (i.e., mother's education can be categorized as "none," "primary education," "5th to 9th grade," etc.). We set "secondary education" as the "baseline" for linear regression, as a high school education is the "standard" education level. All other categorical variables are nominal or binary, so we can factor these normally, with no defined order. 
+
+
+## Exploratory Data Analysis
+
+
+### Data Visualization
+
+
+```{r}
+#Creating a heatmap showing correlation between numeric variables
+numeric_data <- math_data[sapply(math_data, is.numeric)]
+cor_matrix <- cor(numeric_data, use = "complete.obs")
+pheatmap(cor_matrix,display_numbers = TRUE,cellwidth=20,cellheight=15)
+```
+
+Shown above is the Heatmap describing the correlation between numeric variables in our data. Weekend alcohol and social score have a moderate correlation of .42. Other variables do not show a signficant pairwise correlation. 
+
+```{r}
+#Creating heatmap showing correlation of numeric variables with final grade
+target_variable <- "final_grade"
+cor_with_target <- cor(numeric_data, numeric_data[[target_variable]], use = "complete.obs")
+cor_df <- as.data.frame(cor_with_target)
+colnames(cor_df) <- c("Correlation with Final Grade")
+row.names(cor_df) = names(numeric_data)
+pheatmap(as.matrix(cor_df), display_numbers = TRUE, cluster_rows = FALSE, cluster_cols = FALSE,angle_col=0,number_color="black",cellwidth=80,cellheight=20,fontsize=10)
+```
+
+We can see from the Heatmap above that alcohol consumption has a weak negative correlation with Final Grade. 
+
+```{r}
+#Creating side by side boxplots to show distributions of numeric variables
+boxplot(log1p(numeric_data), 
+        main = "Boxplots with Log Transformation",
+        las = 2,         
+        col = rainbow(ncol(numeric_data)),cex.axis = 0.8)
+
+```
+
+'final_grade' and 'social' appear approximately symmetric, while 'weekend_alcohol', 'health', and 'absences' do not. The log transformation is applied due to the severity of outliers in the 'absences' column.
+
+
+Visualization of factor variables:
+
+```{r}
+
+# Filter out columns 'father_education' and 'mother_education'
+factor_data <- math_data[sapply(math_data, is.factor)]
+factor_data <- factor_data[, !(colnames(factor_data) %in% c("father_education", "mother_education"))]
+
+# Convert to long format for plotting
+factor_data_long <- tidyr::pivot_longer(factor_data, cols = everything(), names_to = "variable", values_to = "value")
+
+# Create the ggplot
+ggplot(factor_data_long, aes(x = value)) +
+  geom_bar() +
+  facet_wrap(~ variable, scales = "free_x") +
+  theme_minimal()
+
+```
+
+```{r}
+factor_data_father <- math_data["father_education"]
+factor_data_mother <- math_data["mother_education"]
+
+ggplot(factor_data_father, aes(x = father_education)) +
+  geom_bar() +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +  
+  ggtitle("Father's Education Distribution")  
+
+ggplot(factor_data_mother, aes(x = mother_education)) +
+  geom_bar() +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +  
+  ggtitle("Mother's Education Distribution")  
+```
+
+
+Summarizing 'final_grade":
+
+```{r}
+summary(math_data$final_grade)
+```
+
+```{r}
+hist(math_data$final_grade, 
+     main = "Histogram of Final Grade", 
+     xlab = "Final Grade", 
+     col = "skyblue", 
+     border = "white", 
+     breaks = 10)
+```
+
+The grades do not appear normally distributed. There is an unusual amount of zeroes in the data.
+
+Checking whether or not 'final_grade' follows a normal distribution: 
+
+```{r}
+shapiro.test(math_data$final_grade)
+```
+
+The miniscule p-value confirms our assumption from the histogram. 'final_grade' is not normally distributed. 
+
+## Hypothesis 1: Is Having a More Active Social Life Associated with a Better or Worse Mathematics Grade?
+
+To explore this hypothesis, we will look at a variety of factors such as involvement in extracurricular activities, involvement in a romantic relationship, weekend alcohol consumption, how often a student engages in social outings, etc. Then, we will use multiple methods, including the Wilcoxon Rank Sum test (non-parametric alternative to two-sample t-test) and the Kruskal Wallis test (non-parametric alternative to ANOVA test), to determine whether the mean mathematics grade for the students who have a more active social life is less than that of students who have a less active social life. 
+
+
+### Two Sample T-test (Wilcoxon Rank Sum test) to Test the Difference in Median Final Grade for Students Who Are in a Romantic Relationship vs Students Who Are Not
+
+
+#### Checking the assumptions to determine which type of t-test to use
+
+Normality Assumption:
+
+
+```{r}
+shapiro.test(math_data$final_grade[math_data$romantic_relationship == "no"])  # For group 0
+shapiro.test(math_data$final_grade[math_data$romantic_relationship == "yes"])  # For group 1
+```
+
+To test if the final mathematics grade variable follows a normal distribution, we use a Shapiro test for both 'groups,' with one group being the students who are in a relationship and the other group being the students who are not in a relationship. As evident by the output above, the p-value for both tests is far below our significance level of 0.05. Thus, we reject the null hypothesis and can conclude that the data does not follow a normal distribution for either group. Thus, we must use a Wilcoxon signed rank test, rather than the standard t-test.
+
+
+Equal Variance Assumption:
+
+```{r}
+leveneTest(final_grade ~ factor(romantic_relationship), data = math_data)
+```
+
+
+Since the data is not normally distributed, we use Levene's test to check for equal variance between groups, since Levene's test is more robust than Bartlett's test and less sensitive to departures from normality. Given a p-value of 0.2775, we cannot reject the null hypothesis and conclude that there is insufficient evidence that the variances are unequal at a significance level of 0.05. Thus, we can assume that the variances are equal across the two groups. 
+
+
+#### Wilcoxon Test to Test the Difference in Median Final Grade for Students in a Romantic Relationship vs Students Who Aren't
+
+
+
+```{r}
+# Two-sided Wilcoxon Rank Sum test
+w_test_result <- wilcox.test(final_grade ~ romantic_relationship, data = math_data, alternative = )
+print(w_test_result)
+```
+
+
+```{r}
+# One-sided Wilcoxon Rank Sum test with alternative = "greater"
+w_test_result_greater <- wilcox.test(final_grade ~ romantic_relationship, data = math_data, alternative = "greater")
+print(w_test_result_greater)
+```
+
+
+
+Since the normality assumption has been violated and the equal variance assumption appears to hold true, we use a Wilcoxon signed rank test. From this test, we obtain a p-value of 0.06953. At a significance level of 0.05, we fail to reject the null hypothesis and conclude that there is insufficient evidence that there is a significant difference in median final grade of students who are in a romantic relationship versus those who are not. At 0.10, we can reject the null hypothesis and conclude that there is a significant difference in median final grade of students who are in a romantic relationship versus those who are not. Since the result is significant at alpha = 0.10, we also test to see if the median mathematics grade for students involved in a romantic relationship is greater than that of students not involved in a romantic relationship. From this test, we obtain a p-value of 0.03476. At a significance level of 0.05, we reject the null hypothesis and conclude that students who are involved in a romantic relationship tend to achieve higher mathematics grade than those who are not.
+
+### Two Sample T-test (Wilcoxon Rank Sum test) to Test the Difference in Median Final Grade for Students Involved in Extracurricular Activities vs Students Who Aren't
+
+#### Checking the assumptions to determine which type of t-test to use
+
+Normality Assumption:
+
+```{r}
+shapiro.test(math_data$final_grade[math_data$activities == "no"])  # For group 0
+shapiro.test(math_data$final_grade[math_data$activities == "yes"])  # For group 1
+```
+
+To test if the final mathematics grade variable follows a normal distribution, we use a Shapiro test for both 'groups,' with one group being the students who are involved in extracurricular activities and the other group being the students who are not involved in extracurricular activities. As evident by the output above, the p-value for both tests is far below our significance level of 0.05. Thus, we reject the null hypothesis and can conclude that the data does not follow a normal distribution for either group. Thus, we must use a Wilcoxon Rank Sum test, rather than the standard two-sample t-test.
+
+
+Equal Variance Assumption:
+
+```{r}
+leveneTest(final_grade ~ factor(activities), data = math_data)
+```
+
+
+Since the data is not normally distributed, we use Levene's test to check for equal variance between groups, since Levene's test is more robust than Bartlett's test and less sensitive to departures from normality. Given a p-value of 0.733, we cannot reject the null hypothesis and conclude that there is insufficient evidence that the variances are unequal at a significance level of 0.05. Thus, we can assume that the variances are equal across the two groups. 
+
+
+#### Wilcoxon Test to Test the Difference in Median Final Grade for Students Involved in Extracurricular Activities vs Those Who Aren't
+
+
+```{r}
+# Two sided Wilcoxon Rank Sum test
+w_test_result <- wilcox.test(final_grade ~ activities, data = math_data, alternative = )
+print(w_test_result)
+```
+
+Since the normality assumption has been violated and the equal variance assumption appears to hold true, we use a Wilcoxon Rank Sum test. From this test, we obtain a p-value of 0.6049. At a significance level of 0.05, we fail to reject the null hypothesis and conclude that there is insufficient evidence that there is a significant difference in median final grade of students who are involved in extracurricular activities versus those who are not.
+
+
+### ANOVA Test (Kruskal Wallis Test) to Test the Relationship Between Final Grade and Weekend Alcohol Consumption
+
+#### Why do we use an ANOVA test, rather than a Pearson's Correlation Test?:
+
+
+```{r}
+plot(math_data$weekend_alcohol, math_data$final_grade)
+```
+
+
+As shown in the plot above, weekend alcohol consumption can be considered to be an ordinal categorical variable, since there are only 5 unique values, which can be thought of as "levels." So, we have 5 "groups" and we would like to analyze whether there is a difference in the mean final grade between the five groups. Thus, it is more appropriate to use an ANOVA test, rather than Pearson's correlation test.
+
+
+#### Checking the ANOVA Assumptions
+
+Fitting an ANOVA model:
+
+```{r}
+anova_model <- aov(final_grade ~ weekend_alcohol, data = math_data)
+```
+
+
+Checking for Normality:
+
+```{r}
+# Checking for normality of residuals
+aov_residuals <- residuals(anova_model)
+shapiro.test(aov_residuals)
+```
+
+Using a significance level of 0.05, we can reject the null hypothesis and conclude that there is sufficient evidence that the residuals do not follow a normal distribution. Thus, the normality assumption has been violated.
+
+
+```{r}
+# QQ Plot to check for normality
+qqnorm(aov_residuals)
+qqline(aov_residuals, col = "cornflowerblue")
+```
+
+
+We reach a similar conclusion about the normality of the data from the QQ plot. It is clear that the residuals do not follow a normal distribution. Thus, the normality assumption has been violated and we should consider a nonparametric alternative to the ANOVA test, such as the Kruskal Wallis test. 
+
+
+Checking for homogeneity of variance: 
+
+```{r}
+leveneTest(final_grade ~ factor(weekend_alcohol), data = math_data)
+```
+
+Using a significance level of 0.05, we can reject the null hypothesis and conclude that there is sufficient evidence that the variance is not the same across all groups. Thus, the homogeneity of variances assumption has been violated. 
+
+
+Since both of the assumptions for ANOVA have been violated, we will use a nonparametric alternative to the ANOVA test, known as the Kruskal Wallis test.
+
+
+#### Kruskal Wallis Test to Test the Relationship Between Final Grade and Weekend Alcohol Consumption
+
+
+```{r}
+kruskal_result <- kruskal.test(final_grade ~ factor(weekend_alcohol), data = math_data)
+print(kruskal_result)
+```
+
+At a significance level of 0.05, we fail to reject the null hypothesis and conclude that there is insufficient evidence that the medians are not equal across the groups. Thus, we can conclude that there is not a significant difference in the medians across the five groups. There is not a significant relationship between weekend alcohol consumption and final grade. Since our results are insignificant, it is unnecessary to perform post-hoc analysis. 
+
+### ANOVA Test (Kruskal Wallis test) to Test the Relationship Between Final Grade and Frequency of Social Outings
+
+#### Why do we use an ANOVA test, rather than a Pearson's Correlation Test?:
+
+
+```{r}
+plot(math_data$social, math_data$final_grade)
+```
+
+As shown in the plot above, frequency of social outings can be considered to be an ordinal categorical variable, since there are only 5 unique values, which can be thought of as "levels." So, we have 5 "groups" and we would like to analyze whether there is a difference in the mean final grade between the five groups. Thus, it is more appropriate to use an ANOVA test, rather than Pearson's correlation test.
+
+
+#### Checking the ANOVA Assumptions
+
+Fitting an ANOVA model:
+
+```{r}
+anova_model2 <- aov(final_grade ~ social, data = math_data)
+```
+
+
+Checking for Normality:
+
+```{r}
+# Checking for normality of residuals
+aov_residuals2 <- residuals(anova_model2)
+shapiro.test(aov_residuals2)
+```
+
+Using a significance level of 0.05, we can reject the null hypothesis and conclude that there is sufficient evidence that the residuals do not follow a normal distribution. Thus, the normality assumption has been violated.
+
+
+```{r}
+# QQ Plot to check for normality
+qqnorm(aov_residuals2)
+qqline(aov_residuals2, col = "seagreen")
+```
+
+We reach a similar conclusion about the normality of the data from the QQ plot. It is clear that the residuals do not follow a normal distribution. Thus, the normality assumption has been violated and we should consider a nonparametric alternative to the ANOVA test, such as the Kruskal Wallis test. 
+
+Checking for homogeneity of variances: 
+
+```{r}
+leveneTest(final_grade ~ factor(social), data = math_data)
+```
+
+Using a significance level of 0.05, we cannot reject the null hypothesis and conclude that there is insufficient evidence that the variance is not the same across all groups. Thus, the homogeneity of variances assumption appears to hold true. 
+
+Since the normality of residuals assumption has been violated, we will use a nonparametric alternative to the ANOVA test, known as the Kruskal Wallis test.
+
+
+#### Kruskal Wallis Test to Test the Relationship Between Final Grade and Frequency of Social Outings
+
+
+```{r}
+kruskal_result2 <- kruskal.test(final_grade ~ factor(social), data = math_data)
+print(kruskal_result2)
+```
+
+At a significance level of 0.05, we can reject the null hypothesis and conclude that there is sufficient evidence that the medians are not equal across the groups. Thus, we can conclude that there is a significant relationship between social outing frequency and final grade. Next, we must conduct a post-hoc analysis to examine the relationship further. 
+
+#### Pairwise Comparisons using Tukey HSD Test
+
+```{r}
+anova_model2 <- aov(final_grade ~ factor(social), data = math_data)
+tukey_test <- TukeyHSD(anova_model2, conf.level=.95)
+tukey_test
+```
+As shown above, there is a statistically significant difference between group 5 and group 2 at alpha = .05. There is a statistically significant difference between group 5 and group 3 at alpha = 0.10. This indicates that going out with friends 'very often' is associated with having a lower final grade, compared to 'somewhat often' and 'not often'.  
+
+#### Visualizing Confidence Intervals from Tukey Test
+
+```{r}
+plot(tukey_test, las = 2)
+```
+
+According to the plot above, we can be 95% confident that the true difference in mean between group 5 and group 2 is between -4 and -.05 (the mean math scores of social score = 5 is lower than the mean math scores of social score = 2.)
+
+## Hypothesis 2: What Kind of Socioeconomic and Demographic Factors Have the Strongest Effect on Final Grade?
+
+To explore this hypothesis, we will use a multiple linear regression model. We will use mathematics final grade as the dependent variable, and use a variety of independent variables including address type (urban or rural), family support, health status, access to internet, mother's and father's education level, student's participation in extra paid classes, and parent status (parents living together vs parents living apart). 
+
+### Fitting a Multiple Linear Regression Model
+
+Final Grade = Address Type + Family Support + Health + Internet Access + Mother's Education Level + Father's Education Level + Extra Paid Classes + Parent Status + error.
+
+
+```{r}
+# Simple multivariate linear regression model
+model <- lm(final_grade ~ address_type + family_support + health + internet_access + mother_education + father_education + extra_paid_classes + parent_status, data = math_data)
+summary(model)
+```
+
+As illustrated by this model, most of the socioeconomic factors involved in this study do not have a significant effect on a student's final grade, holding all other factors constant. In this model, extra paid classes, mother's education, and family support had a significant effect on a student's final mathematics grade at a significance level of 0.10. That is, a student who has participated in extra paid classes or a student whose mother has obtained a bachelor's degree or higher, will achieve a higher mathematics grade. Interestingly, a student who has family support will achieve a lower mathematics grade. The predictive power of this model is very weak, with an adjusted R-squared value of 0.0508.
+
+#### Checking if the Linear Regression Assumptions Have Been Violated
+
+Checking if the linearity assumption is violated:
+
+
+```{r}
+#Residual Plot
+plot(model$fitted.values, residuals(model), main = "Residual Plot", xlab = "Fitted Values", ylab = "Residuals")
+abline(h = 0, col = "springgreen4")
+```
+
+
+Looking at the plot above, the linearity assumption appears to be violated, thus making our linear regression model invalid. 
+
+
+Checking if the normality assumption is violated:
+
+
+```{r}
+#QQ Plot
+qqnorm(residuals(model))
+qqline(residuals(model), col = "maroon")
+```
+
+Based on this plot, it appears that the normality assumption has been violated.
+
+
+```{r}
+#Histogram of residuals
+ggplot(data.frame(residuals = residuals(model)), aes(x = residuals)) +
+  geom_histogram(binwidth = 3, fill = "slategray2", color = "black") +
+  labs(title = "Histogram of Residuals", x = "Residuals", y = "Frequency") +
+  theme_minimal()
+```
+
+
+This histogram of the residuals indicates that the residuals are heavily skewed left, and do not follow a normal distribution.
+
+
+```{r}
+#Shapiro test to test for normality of residuals
+shapiro.test(residuals(model))
+```
+
+Given a p-value of 2.555e-10, we can reject the null hypothesis and conclude that the residuals are not normally distributed. 
+
+Based on these three procedures, it's obvious that the normality assumption has been violated.
+
+
+Checking if the homoscedasticity (equal variance) assumption has been violated:
+
+```{r}
+#Residual plot
+plot(model$fitted.values, residuals(model), main = "Residual Plot", xlab = "Fitted Values", ylab = "Residuals")
+abline(h = 0, col = "springgreen4")
+```
+
+According to this residual plot, the data appears to follow the homoscedasticity/equal variance assumption.
+
+However, the other two assumptions have been violated, so this linear regression model is invalid.
+
+
+### Multiple Linear Regression with Box-Cox Transformation on Y
+
+To address the issue of the normality assumption being violated, we will perform a Box-Cox transformation on the response variable, final grade. First, we must shift the values of the response variable by 1, since all of the values of the response variable must be greater than 0 in order to use the Box-Cox transformation.
+
+```{r}
+#Shifting the data to be positive so we can use Box-Cox transformation
+min_value <- min(math_data$final_grade)
+if (min_value <= 0) {
+  math_data$final_grade_plus1 <- math_data$final_grade - min_value + 1
+}
+```
+
+
+```{r}
+#Box Cox Transformation
+bc <- boxcox(final_grade_plus1 ~ address_type + family_support + health + internet_access + mother_education + father_education + extra_paid_classes + parent_status, data = math_data)
+
+lambda1 <- bc$x[which.max(bc$y)]
+math_data$transformed_y <- (math_data$final_grade_plus1^lambda1-1)/lambda1
+```
+
+
+Next, we will construct a new multiple linear regression model, with the Box-Cox transformation applied to the response variable.
+
+
+```{r}
+#New multiple linear regression model with Box-Cox transformation applied
+boxcox_model <- lm(transformed_y ~ address_type + family_support + health + internet_access + mother_education + father_education + extra_paid_classes + parent_status, data = math_data)
+summary(boxcox_model)
+```
+
+
+The results of this model are slightly different from the original model. In this model, the independent variables that have a statistically significant relationship are family support (at alpha = 0.05), and mother's education (higher education and primary education) (at alpha = 0.10). That is, a student whose mother has achieved a bachelor's degree or higher is predicted to achieve a higher final grade, while a student whose mother has achieved only a primary education is predicted to achieve a lower mathematics grade. Similar to the original model, a student with family support is predicted to achieve a lower mathematics grade.
+
+#### Checking if Linear Regression Assumptions Have Been Violated
+
+Checking if the linearity assumption is violated:
+
+
+```{r}
+#Residual Plot
+plot(boxcox_model$fitted.values, residuals(boxcox_model), main = "Residual Plot", xlab = "Fitted Values", ylab = "Residuals")
+abline(h = 0, col = "springgreen4")
+```
+
+
+According to this residual plot, the linearity assumption has been violated, even after applying the Box-Cox transformation. 
+
+
+Checking if the normality assumption is violated:
+
+
+```{r}
+#QQ Plot
+qqnorm(residuals(boxcox_model))
+qqline(residuals(boxcox_model), col = "maroon")
+```
+
+Based on this plot, it appears that the normality assumption has been violated. 
+
+
+```{r}
+#Histogram of residuals
+ggplot(data.frame(residuals = residuals(boxcox_model)), aes(x = residuals)) +
+  geom_histogram(binwidth = 5, fill = "palegreen3", color = "black") +
+  labs(title = "Histogram of Residuals", x = "Residuals", y = "Frequency") +
+  theme_minimal()
+```
+
+Based on this histogram, the distribution of the residuals still seems to be slightly skewed.
+
+```{r}
+#Shapiro test to test for normality of residuals
+shapiro.test(residuals(boxcox_model))
+```
+
+Given a p-value of 2.631e-05, we reject the null hypothesis and can conclude that the residuals are not normally distributed.
+
+
+Checking if the homoscedasticity (equal variance) assumption has been violated:
+
+```{r}
+#Residual plot
+plot(boxcox_model$fitted.values, residuals(boxcox_model), main = "Residual Plot", xlab = "Fitted Values", ylab = "Residuals")
+abline(h = 0, col = "springgreen4")
+```
+
+Based on the residual plot, it appears that the homoscedasticity/equal variance assumption holds true. 
+
+However, the other two assumptions have been violated, so this linear regression model is invalid.
+
+
+### Multiple Linear Regression Model, Ignoring Values of Y = 0
+
+One problem with this model is that our dependent variable, final grade, is heavily skewed to the left with many values of '0'. Since a final grade of 0 in a course generally means that a student did not complete the course or had their score voided (due to cheating, absences, etc.), these scores are most likely irrelevant. Thus, we will remove all rows where final grade is equal to 0, and repeat the linear regression model. 
+
+
+```{r}
+#Taking subset of the data where final grade is above 0
+over0 <- subset(math_data, final_grade > 0)
+```
+
+
+```{r}
+#Creating a multiple linear regression model with this new subset of the data
+model_no0 <- lm(final_grade ~ address_type + family_support + health + internet_access + mother_education + father_education + extra_paid_classes + parent_status, data = over0)
+summary(model_no0)
+```
+
+With zero values removed, the results slightly differ. The independent variables that have a statistically significant relationship with final grade at the 0.10 significance level are family support and father's education level. That is, a student whose father has obtained a Bachelor's degree or higher will achieve a higher final grade. Similar to the original model, a student with family support will achieve a lower final grade.
+
+#### Checking if the Linear Regression Assumptions Have Been Violated
+
+Checking if the linearity assumption has been violated:
+
+
+```{r}
+#Residual Plot
+plot(model_no0$fitted.values, residuals(model_no0), main = "Residual Plot", xlab = "Fitted Values", ylab = "Residuals")
+abline(h = 0, col = "springgreen4")
+```
+
+Based on this residual plot, we can assume that the linearity assumption holds true, as the data does not appear to follow any pattern. 
+
+Checking if the normality assumption is violated:
+
+
+```{r}
+#QQ Plot
+qqnorm(residuals(model_no0))
+qqline(residuals(model_no0), col = "maroon")
+```
+
+Based on this plot, it appears that the normality assumption holds true. 
+
+
+```{r}
+#Histogram of residuals
+ggplot(data.frame(residuals = residuals(model_no0)), aes(x = residuals)) +
+  geom_histogram(binwidth = 3, fill = "thistle", color = "black") +
+  labs(title = "Histogram of Residuals", x = "Residuals", y = "Frequency") +
+  theme_minimal()
+```
+
+Based on this histogram, the residuals appear to be normally distributed.
+
+```{r}
+#Shapiro test to test for normality of residuals
+shapiro.test(residuals(model_no0))
+```
+
+Given a p-value of 0.8223, we fail to reject the null hypothesis and can conclude that the residuals are normally distributed.
+
+
+Checking if the homoscedasticity (equal variance) assumption has been violated:
+
+```{r}
+#Residual plot
+plot(model_no0$fitted.values, residuals(model_no0), main = "Residual Plot", xlab = "Fitted Values", ylab = "Residuals")
+abline(h = 0, col = "springgreen4")
+```
+
+Based on the plot of residuals, it appears that the homoscedasticity/equal variance assumption holds true.
+
+All three linear regression assumptions hold true, so we can assume that our results from this model are valid.
+
+## Effects of Missing Data on Our Analysis
+
+Checking for missing data first:
+
+```{r}
+sum(is.na(math_data)) #check for missing data
+```
+
+There are no missing values in our data.
+
+
+### Simulating and Dealing With MCAR Data: Missing Values Selected Completely at Random
+
+
+To deal with MCAR data, we will use listwise deletion, i.e., deleting any rows with missing values. Since we don't have any actual NA values in our dataset, we will simulate a situation where 20% of our data is composed of missing values. To do so, we will select a random subset of 80% of the rows, which is approximately equivalent to assigning an NA value to 20% of the rows and subsequently removing the rows with an NA value.
+
+```{r}
+#Selecting a random sample containing 80% of the rows in our dataset
+data_MCAR <- math_data[sample(nrow(math_data), ceiling(0.8*nrow(math_data))),]
+```
+
+
+Checking how many rows we have left after selecting a subset, to ensure that 20% of the data has been removed: 
+
+
+```{r}
+sum(complete.cases(data_MCAR))
+```
+
+(316)*(0.2) = 395, so we have correctly removed 20% of the rows. 
+
+
+#### Repeating Wilcoxon Rank Sum Tests using MCAR data
+
+```{r}
+shapiro.test(data_MCAR$final_grade[data_MCAR$romantic_relationship == "no"])  # For group 0
+shapiro.test(data_MCAR$final_grade[data_MCAR$romantic_relationship == "yes"])  # For group 1
+```
+
+With our new MCAR data, the data is still not normally distributed.
+
+Test for unequal variance:
+
+```{r}
+leveneTest(final_grade ~ factor(romantic_relationship), data = data_MCAR)
+```
+The p-value is greater than .05, therefore we cannot conclude that the variances are unequal. We will proceed with Wilcoxon Rank Sum test. 
+
+```{r}
+#Two sided Wilcoxon Rank Sum test using MCAR data for romantic_relationship
+w_test_result_MCAR <- wilcox.test(final_grade ~ romantic_relationship, data = data_MCAR, alternative = )
+print(w_test_result_MCAR)
+```
+The p-value is greater than .05, so we conclude there is insufficient evidence that there is a significant difference in median final grade of students who are in a romantic relationship versus those who are not. 
+
+Moving onto the effect of extracurricular activities on final grade:
+
+```{r}
+shapiro.test(data_MCAR$final_grade[data_MCAR$activities == "no"])  # For group 0
+shapiro.test(data_MCAR$final_grade[data_MCAR$activities == "yes"])  # For group 1
+```
+We conclude that the data is not normally distributed, due to p-value being less than .05.
+
+Testing equal variance assumption:
+
+```{r}
+leveneTest(final_grade ~ factor(activities), data = data_MCAR)
+```
+The p-value is very high, so we assume equal variance.
+
+Wilcoxon Rank Sum test to test for difference in medians between students involved in extracurricular acitivites vs students not involved in extracurricular activities:
+
+```{r}
+#Two-sided Wilcoxon Rank Sum test using MCAR data for activities
+w_test_result_MCAR <- wilcox.test(final_grade ~ activities, data = data_MCAR, alternative = )
+print(w_test_result_MCAR)
+```
+The p-value is greater than .05, so we conclude that there is not a significant difference in median final grade of students who are involved in  activities versus those who are not.
+
+#### Repeating Kruskal Wallis tests using MCAR data
+
+First, we will repeat the Kruskal Wallis test for weekend alcohol consumption.
+
+We check the assumptions for ANOVA below:
+
+```{r}
+#Fitting an ANOVA model
+anova_model_MCAR <- aov(final_grade ~ weekend_alcohol, data = data_MCAR)
+```
+
+Checking for Normality:
+
+```{r}
+# Checking for normality of residuals
+aov_residuals_MCAR <- residuals(anova_model_MCAR)
+shapiro.test(aov_residuals_MCAR)
+```
+
+Using a significance level of 0.05, we can reject the null hypothesis and conclude that there is sufficient evidence that the residuals do not follow a normal distribution. Thus, the normality assumption has been violated.
+
+
+```{r}
+# QQ Plot to check for normality
+qqnorm(aov_residuals_MCAR)
+qqline(aov_residuals_MCAR, col = "cornflowerblue")
+```
+
+
+We reach a similar conclusion about the normality of the data from the QQ plot. It is clear that the residuals do not follow a normal distribution. Thus, the normality assumption has been violated and we should consider a nonparametric alternative to the ANOVA test, such as the Kruskal Wallis test. 
+
+Checking for homogeneity of variances: 
+
+```{r}
+leveneTest(final_grade ~ factor(weekend_alcohol), data = data_MCAR)
+```
+
+Using a significance level of 0.05, we can not reject the null hypothesis and conclude that there is insufficient evidence that the variance is not the same across all groups. Thus, the homogeneity of variances assumption has not been violated. 
+
+Since the normality of residuals assumption has been violated, we will use a nonparametric alternative to the ANOVA test, known as the Kruskal Wallis test.
+
+
+```{r}
+kruskal_result <- kruskal.test(final_grade ~ factor(weekend_alcohol), data = data_MCAR)
+print(kruskal_result)
+```
+
+At a significant level of 0.05, we fail to reject the null hypothesis and conclude that there is insufficient evidence that the medians are not equal across the groups. Thus, we can conclude that there is not a significant relationship between weekend alcohol consumption and mathematics final grade. Since our results are insignificant, it is unnecessary to perform post-hoc analysis. 
+
+
+Next, we will repeat the Kruskal Wallis test for social outing frequency.
+
+```{r}
+anova_model_MCAR_2 <- aov(final_grade ~ social, data = data_MCAR)
+```
+
+
+Checking for Normality:
+
+```{r}
+# Checking for normality of residuals
+aov_residuals_MCAR_2 <- residuals(anova_model_MCAR_2)
+shapiro.test(aov_residuals_MCAR_2)
+```
+
+Using a significance level of 0.05, we can reject the null hypothesis and conclude that there is sufficient evidence that the residuals do not follow a normal distribution. Thus, the normality assumption has been violated.
+
+
+```{r}
+# QQ Plot to check for normality
+qqnorm(aov_residuals_MCAR_2)
+qqline(aov_residuals_MCAR_2, col = "seagreen")
+```
+
+We reach a similar conclusion about the normality of the data from the QQ plot. It is clear that the residuals do not follow a normal distribution. Thus, the normality assumption has been violated and we should consider a nonparametric alternative to the ANOVA test, such as the Kruskal Wallis test. 
+
+
+Checking for homogeneity of variances: 
+
+```{r}
+leveneTest(final_grade ~ factor(social), data = data_MCAR)
+```
+
+Using a significance level of 0.05, we cannot reject the null hypothesis and conclude that there is insufficient evidence that the variance is not the same across all groups. Thus, the homogeneity of variances assumption appears to hold true.
+
+Since the normality of residuals assumption for ANOVA has been violated, we will use a nonparametric alternative to the ANOVA test, known as the Kruskal Wallis test.
+
+
+```{r}
+kruskal_result_MCAR_2 <- kruskal.test(final_grade ~ factor(social), data = data_MCAR)
+print(kruskal_result_MCAR_2)
+```
+
+At a significant level of 0.05, we can reject the null hypothesis and conclude that there is sufficient evidence that the medians are not equal across the groups. Thus, we can conclude that there is a significant relationship between social outing frequency and final grade. Next, we must conduct a post-hoc analysis to examine the relationship further. 
+
+#### Pairwise Comparisons using Tukey HSD Test
+
+```{r}
+anova_model_MCAR_2 <- aov(final_grade ~ factor(social), data = data_MCAR)
+tukey_test_MCAR <- TukeyHSD(anova_model_MCAR_2, conf.level=.95)
+tukey_test_MCAR
+```
+There is a significant difference in medians between group 5 and group 2, and group 5 and group 3 at the 0.05 significance level. 
+
+Visualizing Confidence Intervals from Tukey Test:
+
+```{r}
+plot(tukey_test_MCAR, las = 2)
+```
+
+Based on the plot above, we observe that students who go out with friends "very often" achieve lower final grades than students who go out with friends "not often" or "somewhat often".
+
+#### Multiple Linear Regression model (Final model, ignoring values of 0) using MCAR data
+
+```{r}
+#Taking subset of the data where final grade is above 0
+over0_MCAR <- subset(data_MCAR, final_grade > 0)
+```
+
+
+```{r}
+#Creating a multiple linear regression model with this new subset of the data
+model_no0_MCAR <- lm(final_grade ~ address_type + family_support + health + internet_access + mother_education + father_education + extra_paid_classes + parent_status, data = over0_MCAR)
+summary(model_no0_MCAR)
+```
+
+The MCAR data yields slightly different results than the original. The only independent variable that has a statistically significant relationship with final grade at the 0.10 significance level is father's education level. That is, a student whose father has obtained a bachelor's degree or higher will achieve a higher mathematics grade. 
+
+
+Checking if the Linear Regression Assumptions Have Been Violated:
+
+
+Checking if the linearity assumption has been violated:
+
+
+```{r}
+#Residual Plot
+plot(model_no0_MCAR$fitted.values, residuals(model_no0_MCAR), main = "Residual Plot", xlab = "Fitted Values", ylab = "Residuals")
+abline(h = 0, col = "springgreen4")
+```
+
+Based on this residual plot, we can assume that the linearity assumption holds true, as the data does not appear to follow any pattern. 
+
+Checking if the normality assumption has been violated:
+
+
+```{r}
+#QQ Plot
+qqnorm(residuals(model_no0_MCAR))
+qqline(residuals(model_no0_MCAR), col = "maroon")
+```
+
+Based on this plot, it appears that the normality assumption holds true. 
+
+
+```{r}
+#Histogram of residuals
+ggplot(data.frame(residuals = residuals(model_no0_MCAR)), aes(x = residuals)) +
+  geom_histogram(binwidth = 3, fill = "thistle", color = "black") +
+  labs(title = "Histogram of Residuals", x = "Residuals", y = "Frequency") +
+  theme_minimal()
+```
+
+Based on this histogram, the residuals appear to be normally distributed.
+
+```{r}
+#Shapiro test to test for normality of residuals
+shapiro.test(residuals(model_no0_MCAR))
+```
+
+Given a p-value of 0.8253, we fail to reject the null hypothesis and can conclude that the residuals are normally distributed.
+
+
+Checking if the homoscedasticity (equal variance) assumption has been violated:
+
+```{r}
+#Residual plot
+plot(model_no0_MCAR$fitted.values, residuals(model_no0_MCAR), main = "Residual Plot", xlab = "Fitted Values", ylab = "Residuals")
+abline(h = 0, col = "springgreen4")
+```
+
+Based on the plot of residuals, it appears that the homoscedasticity/equal variance assumption holds true.
+
+All three linear regression assumptions hold true, thus we can assume that our results from this model are valid.
+
+### Simulating and Dealing With MNAR Data: Missing Values Not at Random
+
+To simulate MNAR data, we will use the following scenario: We will select the bottom 20% of final grades and set them to "NA". We do this because students who are likely to achieve a very low grade in the course are more likely to withdraw from the course or not show up for their exams, since they already know that they are going to fail the course, resulting in a missing value for their final course grade.
+
+```{r}
+#Creating a copy of the data
+data_MNAR <- math_data
+```
+
+
+```{r}
+#Finding the bottom 20% of mathematics grade
+bottom20 <- quantile(data_MNAR$final_grade, 0.2)
+```
+
+
+```{r}
+#Creating new final_grade column where the bottom 20% of values are missing
+data_MNAR$final_grade <- ifelse(data_MNAR$final_grade <= bottom20, NA, data_MNAR$final_grade)
+```
+
+
+To deal with the MNAR data that we have created, we will use the multiple imputation method using the mice package. Although multiple imputation is technically considered to be biased for MNAR data, we will modify it a bit to reduce the bias by adding a "missingness indicator." By including this missingness indicator, we are essentially "telling" the imputation process that there is a pattern to the missing data, so the imputation model can account for the fact that the missingness is not random. The imputation model will include the missingness indicator as a predictor and adjust the imputations accordingly. While this does not eliminate bias entirely, it will allow the imputation model to impute the missing values more effectively and reduce bias. 
+
+
+```{r}
+#Creating an indicator for missingness
+data_MNAR$missing_indicator <- ifelse(is.na(data_MNAR$final_grade), 1, 0)
+```
+
+
+```{r}
+#Creating the correct predictor matrix
+predictor_matrix <- matrix(0, nrow = ncol(data_MNAR), ncol = ncol(data_MNAR))
+
+colnames(predictor_matrix) <- colnames(data_MNAR)
+rownames(predictor_matrix) <- colnames(data_MNAR)
+
+predictor_matrix["final_grade", "missing_indicator"] <- 1
+```
+
+
+```{r}
+#Performing multiple imputation
+imputed_data <- mice(data_MNAR, method = "pmm", m = 5, predictorMatrix = predictor_matrix, printFlag = FALSE)
+```
+
+```{r}
+#Complete data after multiple imputation
+complete_data <- complete(imputed_data)
+```
+
+
+If we wanted to address MNAR data more accurately, it may require more advanced techniques like pattern-mixture models or selection models. These models explicitly model the relationship between the missing data and the unobserved values, rather than assuming that missingness can be fully explained by the observed data. However, these models are often very complex and computationally expensive/time consuming. They also tend to be difficult to interpret, so for the sake of our analysis, we will stick with the multiple imputation approach.  
+
+#### Repeating Wilcoxon Rank Sum test using MNAR data:
+
+First, we repeat the Wilcoxon Rank Sum tests. Below is the test for the "romantic_relationship" variable. 
+
+Checking the assumptions:
+
+Testing for Normality:
+
+```{r}
+shapiro.test(data_MNAR$final_grade[data_MNAR$romantic_relationship == "no"])  # For group 0
+shapiro.test(data_MNAR$final_grade[data_MNAR$romantic_relationship == "yes"])  # For group 1
+```
+
+With the MNAR data, the data is still not normally distributed.
+
+Testing for unequal variance:
+
+```{r}
+leveneTest(final_grade ~ factor(romantic_relationship), data = data_MNAR)
+```
+The p-value is less than .05, therefore we conclude that the variances are unequal. Although the Wilcoxon Rank Sum test generally assumes equal variance, we will proceed with this test and assume equal variance as there are not many other options for us to use since our data is not normally distributed.
+
+```{r}
+#Two sided Wilcoxon Rank Sum test for romantic_relationship
+w_test_result_MNAR <- wilcox.test(final_grade ~ romantic_relationship, data = data_MNAR, alternative = )
+print(w_test_result_MNAR)
+```
+The p-value is greater than .05, so we conclude there is insufficient evidence that there is a significant difference in median final grade of students who are in a romantic relationship versus those who are not. 
+
+Moving onto the effect of activities on final grade:
+
+Checking the assumptions:
+
+Testing for normality:
+
+```{r}
+shapiro.test(data_MNAR$final_grade[data_MNAR$activities == "no"])  # For group 0
+shapiro.test(data_MNAR$final_grade[data_MNAR$activities == "yes"])  # For group 1
+```
+We conclude that the data is not normally distributed, due to p-value being less than .05.
+
+Testing for unequal variance:
+
+```{r}
+leveneTest(final_grade ~ factor(activities), data = data_MNAR)
+```
+The p-value is very high, so we assume equal variance.
+
+```{r}
+#Two-sided Wilcoxon Rank Sum test for activities
+w_test_result_MNAR <- wilcox.test(final_grade ~ activities, data = data_MNAR, alternative = )
+print(w_test_result_MNAR)
+```
+The p-value is greater than .05, so we conclude that there is not a significant difference in median final grade of students who are involved in activities versus those who are not.
+
+#### Repeating Kruskal Wallis Tests for MNAR Data
+
+First, we repeat the Kruskal Wallis test for weekend alcohol consumption.
+
+Checking the assumptions:
+
+```{r}
+#Fitting an ANOVA model using MNAR data
+anova_model_MNAR <- aov(final_grade ~ weekend_alcohol, data = data_MNAR)
+```
+
+
+Checking for Normality:
+
+```{r}
+# Checking for normality of residuals
+aov_residuals_MNAR <- residuals(anova_model_MNAR)
+shapiro.test(aov_residuals_MNAR)
+```
+
+Using a significance level of 0.05, we can reject the null hypothesis and conclude that there is sufficient evidence that the residuals do not follow a normal distribution. Thus, the normality assumption has been violated.
+
+
+```{r}
+# QQ Plot to check for normality
+qqnorm(aov_residuals_MNAR)
+qqline(aov_residuals_MNAR, col = "cornflowerblue")
+```
+
+
+The residuals do not appear to be normally distributed. For consistency, we will perform the Kruskal Wallis test. 
+
+Checking for homogeneity of variances: 
+
+```{r}
+leveneTest(final_grade ~ factor(weekend_alcohol), data = data_MNAR)
+```
+
+Using a significance level of 0.05, we can reject the null hypothesis and conclude that there is sufficient evidence that the variance is not the same across all groups. Thus, the homogeneity of variances assumption has been violated. 
+
+Since both of the assumptions for ANOVA have been violated, we will use a nonparametric alternative to the ANOVA test, known as the Kruskal Wallis test.
+
+
+```{r}
+#Kruskal Wallis test for weekend alcohol consumption using MNAR data
+kruskal_result <- kruskal.test(final_grade ~ factor(weekend_alcohol), data = data_MNAR)
+print(kruskal_result)
+```
+
+At a significant level of 0.05, we reject the null hypothesis and conclude that there is sufficient evidence that the medians are not equal across the groups. Thus, we can conclude that there is a significant relationship between weekend alcohol consumption and mathematics final grade. Since our results are significant, we will perform post-hoc analysis. 
+
+#### Pairwise Comparisons using Tukey-HSD test
+
+```{r}
+anova_model_MNAR <- aov(final_grade ~ factor(weekend_alcohol), data = data_MNAR)
+tukey_test_MNAR <- TukeyHSD(anova_model_MNAR, conf.level=.95)
+tukey_test_MNAR
+```
+According to the results of the Tukey test, there is a significant difference in test score between weekend_alcohol = 4 and weekend_alcohol = 1 at a significance level of 0.01.
+
+Visualizing Confidence Intervals from Tukey-HSD Test:
+
+```{r}
+plot(tukey_test_MNAR, las = 2)
+```
+
+
+Next, we repeat the Kruskal Wallis test for social outing frequency using MNAR data:
+
+Checking the assumptions:
+
+```{r}
+#Fitting ANOVA model using MNAR data
+anova_model_MNAR_2 <- aov(final_grade ~ social, data = data_MNAR)
+```
+
+
+Checking for Normality:
+
+```{r}
+# Checking for normality of residuals
+aov_residuals_MNAR_2 <- residuals(anova_model_MNAR_2)
+shapiro.test(aov_residuals_MNAR_2)
+```
+
+Using a significance level of 0.05, we can reject the null hypothesis and conclude that there is sufficient evidence that the residuals do not follow a normal distribution. Thus, the normality assumption has been violated.
+
+
+```{r}
+# QQ Plot to check for normality
+qqnorm(aov_residuals_MNAR_2)
+qqline(aov_residuals_MNAR_2, col = "seagreen")
+```
+
+The residuals do not appear to be normally distributed. For consistency, we will perform the Kruskal Wallis test. 
+
+Checking for homogeneity of variances: 
+
+```{r}
+leveneTest(final_grade ~ factor(social), data = data_MNAR)
+```
+
+Using a significance level of 0.05, we cannot the null hypothesis and conclude that there is insufficient evidence that the variance is not the same across all groups. Thus, the homogeneity of variances assumption appears to hold true. 
+
+Since the normality of residuals assumption for ANOVA has been violated, we will use a nonparametric alternative to the ANOVA test, known as the Kruskal Wallis test.
+
+
+```{r}
+#Kruskal Wallis test for social outing frequency using MNAR data
+kruskal_result_MNAR_2 <- kruskal.test(final_grade ~ factor(social), data = data_MNAR)
+print(kruskal_result_MNAR_2)
+```
+
+At a significant level of 0.05, we cannot reject the null hypothesis as there is insufficient evidence that the medians are not equal across the groups. Thus, we cannot conclude that there is a significant relationship between social outing frequency and final grade.  
+
+
+#### Multiple Linear Regression model (final model with 0 values removed) using MNAR data
+
+```{r}
+#Taking subset of the data where final grade is above 0
+over0_MNAR <- subset(data_MNAR, final_grade > 0)
+```
+
+
+```{r}
+#Creating a multiple linear regression model with this new subset of the data
+model_no0_MNAR <- lm(final_grade ~ address_type + family_support + health + internet_access + mother_education + father_education + extra_paid_classes + parent_status, data = over0_MNAR)
+summary(model_no0_MNAR)
+```
+
+The MNAR data yields slightly different results than the original. The independent variables that have statistically significant relationships with final mathematics grade at the 0.10 significance level is mother's education level (primary), father's education level (higher education), and health. 
+
+Checking the linear regression assumptions:
+
+Checking if the linearity assumption has been violated:
+
+
+```{r}
+#Residual Plot
+plot(model_no0_MNAR$fitted.values, residuals(model_no0_MNAR), main = "Residual Plot", xlab = "Fitted Values", ylab = "Residuals")
+abline(h = 0, col = "springgreen4")
+```
+
+Based on this residual plot, we can assume that the linearity assumption holds true, as the data does not appear to follow any pattern. 
+
+Checking if the normality assumption has been violated:
+
+
+```{r}
+#QQ Plot
+qqnorm(residuals(model_no0_MNAR))
+qqline(residuals(model_no0_MNAR), col = "maroon")
+```
+
+Based on this plot, it appears that the normality assumption does not hold true. 
+
+
+```{r}
+#Histogram of residuals
+ggplot(data.frame(residuals = residuals(model_no0_MNAR)), aes(x = residuals)) +
+  geom_histogram(binwidth = 3, fill = "thistle", color = "black") +
+  labs(title = "Histogram of Residuals", x = "Residuals", y = "Frequency") +
+  theme_minimal()
+```
+
+Based on this histogram, the residuals do not appear to be normally distributed.
+
+```{r}
+#Shapiro test to test for normality of residuals
+shapiro.test(residuals(model_no0_MNAR))
+```
+
+Given that the p-value is less than .05, we can conclude that the residuals are normally distributed.
+
+Checking if the homoscedasticity (equal variance) assumption has been violated:
+
+```{r}
+#Residual plot
+plot(model_no0_MNAR$fitted.values, residuals(model_no0_MNAR), main = "Residual Plot", xlab = "Fitted Values", ylab = "Residuals")
+abline(h = 0, col = "springgreen4")
+```
+
+Based on the plot of residuals, it appears that the variance is increasing.
+
+All three linear regression assumptions do not hold true, thus we cannot assume that our results from this model are valid.
+
+
