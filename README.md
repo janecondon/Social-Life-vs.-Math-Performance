@@ -50,8 +50,7 @@ As illustrated in the heatmaps above, the only numeric variable that appear to b
   
 ## Wilcoxon Test to Analyze the Relationship Between Math Performance, and Romantic Relationship Status and Involvement in Extracurricular Activities
 
-<img width="300" height="300" src="Plots and Images\wilcox_1.png">
-<img width="300" height="300" src="Plots and Images\wilcox_2.png">
+<img width="500" height="300" src="Plots and Images\wilcox_1.png"><img width="500" height="300" src="Plots and Images\wilcox_2.png">
 
 Since our data is not normally distributed, we have opted to use Wilcoxon Rank Sum test, as opposed to the standard two sample t-test.  The results of the tests are as follows:
 * **Romantic relationship**: At 𝛼 = 0.05, we fail to reject the null hypothesis. However, at 𝛼 = 0.10, we can reject the null hypothesis and conclude that there may be a relationship between involvement in a romantic relationship and mathematics final grade. After further analysis, we conclude that students involved in a romantic relationship tend to achieve higher mathematics grades than those who are not.
@@ -60,8 +59,7 @@ Since our data is not normally distributed, we have opted to use Wilcoxon Rank S
 
 ## Kruskal Wallis Test to Analyze the Relationship Between Math Performance, and Frequency of Social Outings and Weekend Alcohol Consumption
 
-<img width="300" height="300" src="Plots and Images\kw_1.png">
-<img width="300" height="300" src="Plots and Images\kw_2.png">
+<img width="500" height="300" src="Plots and Images\kw_1.png"><img width="500" height="300" src="Plots and Images\kw_2.png">
 
 Since our data is not normally distributed, we have opted to use the Kruskal Wallis test, as opposed to the standard ANOVA test.  The results of the tests are as follows:
 
@@ -71,8 +69,7 @@ Our post-hoc analysis indicates that students who attend social outings more fre
 
 ## Multiple Linear Regression to Analyze the Relationship Between Math Performance and Socioeconomic Status
 
-<img width="300" height="400" src="Plots and Images\lr_1.png">
-<img width="300" height="300" src="Plots and Images\lr_2.png">
+<img width="300" height="400" src="Plots and Images\lr_1.png"><img width="300" height="300" src="Plots and Images\lr_2.png">
 
 * Extra paid classes, mother's education, and family support were the only variables to have a significant relationship with a student's final mathematics grade at a significance level of 0.10.
 * The predictive power of this model is very weak, with an adjusted R-squared value of 0.0508.
@@ -80,8 +77,7 @@ Unfortunately, this model is not entirely valid or reliable, as two of the linea
 
 ## Modified Multiple Linear Regression
 
-<img width="300" height="400" src="Plots and Images\lr_5.png">
-<img width="300" height="300" src="Plots and Images\lr_6.png">
+<img width="300" height="400" src="Plots and Images\lr_5.png"><img width="300" height="300" src="Plots and Images\lr_6.png">
 
 * The mathematics final grade variable has many values of '0'. Since a final grade of 0 in a course generally means that a student did not complete the course or had their score voided, these scores are most likely irrelevant. Thus, we will remove all rows where final grade is equal to 0, and repeat the linear regression model.
 * With zero values removed, the results slightly differ. The independent variables that have a statistically significant relationship with final mathematics grade at the 0.10 significance level are family support and father's education level.
@@ -91,18 +87,21 @@ Unfortunately, this model is not entirely valid or reliable, as two of the linea
 ## Final Thoughts
 
 **Social Factors and Math Performance**
-*Not much impact from individual factors (e.g., extracurricular activities, alcohol consumption, etc.). However, a few factors are significant:
+* Not much impact from individual factors (e.g., extracurricular activities, alcohol consumption, etc.). However, a few factors are significant:
+  
 **Social Life**: 
-*Students involved in a romantic relationship are predicted to achieve higher mathematics grades compared to their peers. 
-*Students who attend social outings very frequently are predicted to achieve lower mathematics grades compared to their peers.
+* Students involved in a romantic relationship are predicted to achieve higher mathematics grades compared to their peers. 
+* Students who attend social outings very frequently are predicted to achieve lower mathematics grades compared to their peers.
+  
 **Socioeconomic Status**:
-*Students whose father has completed a Bachelor’s degree or higher are predicted to achieve higher mathematics grades  compared to their peers.
-*Students who receive more family support in the field of mathematics are predicted to achieve lower mathematics grades compared to their peers.
-*Significant collective impact of social factors on math performance (p-value = 0.002352).
+* Students whose father has completed a Bachelor’s degree or higher are predicted to achieve higher mathematics grades  compared to their peers.
+* Students who receive more family support in the field of mathematics are predicted to achieve lower mathematics grades compared to their peers.
+* Significant collective impact of social factors on math performance (p-value = 0.002352).
+  
 **Conclusion and Future Directions**
-*Social factors as a whole affect math performance.
-*Future research should consider geographical and cultural factors.
-*Limited to Portuguese data; findings may not generalize globally.
+* Social factors as a whole affect math performance.
+* Future research should consider geographical and cultural factors.
+* Limited to Portuguese data; findings may not generalize globally.
 
 
 
